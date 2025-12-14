@@ -21,6 +21,14 @@ config :elixir_todo_list, ElixirTodoListWeb.Endpoint,
   pubsub_server: ElixirTodoList.PubSub,
   live_view: [signing_salt: "KgksMclz"]
 
+
+# Configure Ecto
+config :elixir_todo_list, ElixirTodoList.Repo,
+  database: "elixir_todo_list.db",
+  priv: "priv/repo"
+
+config :elixir_todo_list, ecto_repos: [ElixirTodoList.Repo]
+
 # Configure the mailer
 #
 # By default it uses the "Local" adapter which stores the emails
