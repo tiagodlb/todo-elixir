@@ -14,7 +14,9 @@ defmodule ElixirTodoList.Task do
   def changeset(task, attrs) do
     task
     |> cast(attrs, [:title, :completed, :priority, :category])
-    |> validate_required([:title])
+    |> validate_required([:title],
+       message: "Não existe tarefa sem nome. Tente adicionar um nome"
+    )
     |> validate_inclusion(:priority, ["low", "medium", "high"])
   end
 
