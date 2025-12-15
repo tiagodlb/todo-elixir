@@ -15,7 +15,7 @@ Este projeto implementa uma aplicação de lista de tarefas (CRUD - Create, Read
 
 O módulo principal utiliza **Phoenix LiveView** para gerenciar o estado da aplicação e renderizar a interface do usuário em tempo real. Isso proporciona uma experiência reativa e eficiente através de uma única conexão WebSocket.
 
-A persistência de dados é gerenciada pelo **Ecto** (com PostgreSQL), e a estilização front-end é facilitada pela integração com **DaisyUI** e Tailwind CSS.
+A persistência de dados é gerenciada pelo **Ecto** (com PostgreSQL), e a estilização front-end é facilitada pela integração com **DaisyUI** (previamente em commits anteriores) e Tailwind CSS.
 
 ---
 
