@@ -5,14 +5,20 @@ defmodule ElixirTodoList.Task do
   schema "tasks" do
     field :title, :string
     field :completed, :boolean, default: false
-    timestamps(type: :utc_datetime)
+    field :priority, :string, default: "medium"
+    field :category, :string, default: "geral"
+
+    timestamps()
   end
 
-  def changeset(task_struct, attrs) do
-    task_struct
-    |> cast(attrs, [:title, :completed])
+  def changeset(task, attrs) do
+    task
+    |> cast(attrs, [:title, :completed, :priority, :category])
     |> validate_required([:title])
+    |> validate_inclusion(:priority, ["low", "medium", "high"])
   end
+
+  def priority_color("high"), do: "bg-red-400"
+  def priority_color("medium"), do: "bg-yellow-400"
+  def priority_color("low"), do: "bg-green-400"
 end
-
-
