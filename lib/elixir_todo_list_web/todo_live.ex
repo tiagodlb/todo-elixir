@@ -1,37 +1,41 @@
 defmodule ElixirTodoListWeb.TodoLive do
   use ElixirTodoListWeb, :live_view
-  alias ElixirTodoList.{Repo, Task}
+  alias ElixirTodoList.{Repo, Category}
+  alias ElixirTodoList.Task, as: TaskSchema
   import Ecto.Query
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, fetch_tasks(assign(socket, filter: "all", category_filter: "all", editing_id: nil))}
+    {:ok, fetch_tasks(assign(socket, filter: "all", category_filter: "all", editing_id: nil, show_new_category_form: false))}
   end
 
   defp fetch_tasks(socket) do
-    tasks = Repo.all(from(t in Task, order_by: [desc: :inserted_at]))
+    tasks = Repo.all(from(t in TaskSchema, order_by: [desc: :inserted_at]))
 
-    # NOVO: Coleta todas as categorias únicas e garante que "TODAS" está no topo.
+    categories_from_db = Repo.all(from(c in Category, order_by: :name))
+
     categories =
-      tasks
-      |> Enum.map(& &1.category)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> then(&["all" | &1])
+      ["all" | Enum.map(categories_from_db, & &1.slug)]
       |> Enum.map(&{&1 |> String.upcase(), &1})
 
     socket
-    |> assign(tasks: tasks, form: to_form(Task.changeset(%Task{}, %{})))
-    # NOVO ASSIGN
+    |> assign(tasks: tasks, form: to_form(TaskSchema.changeset(%TaskSchema{}, %{})))
     |> assign(categories: categories)
   end
 
   @impl true
   def handle_event("save_task", %{"task" => params}, socket) do
-    params = Map.put_new(params, "category", "geral")
+    category =
+      case params do
+        %{"new_category" => new_cat} when byte_size(new_cat) > 0 ->
+          new_cat |> String.downcase() |> String.trim()
+        _ ->
+          params["category"] || "geral"
+      end
 
-    case Repo.insert(Task.changeset(%Task{}, params)) do
+    params = Map.put(params, "category", category)
+
+    case Repo.insert(TaskSchema.changeset(%TaskSchema{}, params)) do
       {:ok, _} ->
         {:noreply, socket |> fetch_tasks() |> put_flash(:info, "Boa! Mais um passo dado!")}
 
@@ -42,7 +46,7 @@ defmodule ElixirTodoListWeb.TodoLive do
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Repo.get!(Task, id) |> Repo.delete()
+    Repo.get!(TaskSchema, id) |> Repo.delete()
 
     {:noreply,
      socket |> fetch_tasks() |> put_flash(:info, "Tarefa removida. Foco no que importa!")}
@@ -50,8 +54,8 @@ defmodule ElixirTodoListWeb.TodoLive do
 
   @impl true
   def handle_event("toggle_complete", %{"id" => id}, socket) do
-    task = Repo.get!(Task, id)
-    Task.changeset(task, %{completed: !task.completed}) |> Repo.update()
+    task = Repo.get!(TaskSchema, id)
+    TaskSchema.changeset(task, %{completed: !task.completed}) |> Repo.update()
 
     msg = if !task.completed, do: "Excelente trabalho!", else: "Tarefa reaberta. Você consegue!"
     {:noreply, socket |> fetch_tasks() |> put_flash(:info, msg)}
@@ -61,22 +65,45 @@ defmodule ElixirTodoListWeb.TodoLive do
   def handle_event("set_filter", %{"filter" => f}, socket),
     do: {:noreply, assign(socket, filter: f)}
 
-  # NOVO EVENTO: Define o filtro de categoria
   @impl true
   def handle_event("set_category_filter", %{"category_filter" => cf}, socket),
     do: {:noreply, assign(socket, category_filter: cf)}
 
-  ## Função para Limpar Concluídas
+  @impl true
+  def handle_event("toggle_new_category_form", _params, socket),
+    do: {:noreply, assign(socket, show_new_category_form: !socket.assigns.show_new_category_form)}
+
+  @impl true
+  def handle_event("add_category", %{"category_name" => name}, socket) do
+    trimmed_name = String.trim(name)
+
+    if byte_size(trimmed_name) > 0 do
+      case Repo.insert(Category.changeset(%Category{}, %{"name" => trimmed_name})) do
+        {:ok, _} ->
+          {:noreply,
+           socket
+           |> fetch_tasks()
+           |> assign(show_new_category_form: false)
+           |> put_flash(:info, "Categoria '#{trimmed_name}' criada com sucesso!")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Erro ao criar categoria. Tente novamente!")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Digite um nome para a categoria!")}
+    end
+  end
+
   @impl true
   def handle_event("clear_completed", _params, socket) do
-    query = from(t in Task, where: t.completed == true)
+    query = from(t in TaskSchema, where: t.completed == true)
     {count, _} = Repo.delete_all(query)
 
     msg =
       case count do
         0 -> "Nenhuma tarefa concluída para limpar."
-        1 -> "Uma tarefa concluída foi removida! ✨"
-        n -> "#{n} tarefas concluídas foram removidas! Excelente foco! ✨"
+        1 -> "Uma tarefa concluída foi removida!"
+        n -> "#{n} tarefas concluídas foram removidas! Excelente foco!"
       end
 
     {:noreply, socket |> fetch_tasks() |> put_flash(:info, msg)}
@@ -85,7 +112,6 @@ defmodule ElixirTodoListWeb.TodoLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <%!-- ... o seu template HTML (inalterado, exceto pela correção do erro no input) ... --%>
     <div class="min-h-screen bg-[#F4F4F9] text-[#2D3142] p-4 md:p-12 font-sans selection:bg-[#FF5F1F] selection:text-white">
       <div class="max-w-4xl mx-auto">
         <header class="mb-12 relative">
@@ -95,12 +121,12 @@ defmodule ElixirTodoListWeb.TodoLive do
             </h1>
             <p class="text-lg font-bold border-l-8 border-[#2D3142] pl-4 mt-2">
               <%= if Enum.count(@tasks, &!&1.completed) == 0 do %>
-                Tudo limpo! Que tal planejar algo novo? 🚀
+                Tudo limpo! Que tal planejar algo novo?
               <% end %>
               <%= if Enum.count(@tasks, &!&1.completed) == 1 do %>
-                Você tem {Enum.count(@tasks, &(!&1.completed))} missão para hoje. Vamos nessa?
+                Você tem {Enum.count(@tasks, &(!&1.completed))} missão para hoje. Vamos nissa?
               <% else %>
-                Você tem {Enum.count(@tasks, &(!&1.completed))} missões para hoje. Vamos nessa?
+                Você tem {Enum.count(@tasks, &(!&1.completed))} missões para hoje. Vamos nissa?
               <% end %>
             </p>
           </div>
@@ -142,32 +168,72 @@ defmodule ElixirTodoListWeb.TodoLive do
                   class="!p-0 !border-0 !bg-transparent !font-black !text-[10px] !ring-0 cursor-pointer uppercase !mt-2 "
                 />
               </div>
+
+              <div class="flex items-center gap-2 bg-white border-2 border-black px-3 py-1 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                <span class="text-[10px] font-black uppercase italic">Categoria:</span>
+                <.input
+                  type="select"
+                  field={@form[:category]}
+                  options={Enum.map(@categories, fn {label, value} -> {label, value} end)}
+                  class="!p-0 !border-0 !bg-transparent !font-black !text-[10px] !ring-0 cursor-pointer uppercase !mt-2 "
+                />
+              </div>
             </div>
           </.form>
         </section>
 
-        <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b-4 border-black pb-4">
-          <div class="flex gap-4">
-            <%= for {label, f} <- [{"Tudo", "all"}, {"Ativas", "active"}, {"Concluídas", "completed"}] do %>
+        <div class="flex flex-col gap-4 mb-8">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b-4 border-black pb-4">
+            <div class="flex gap-4 items-center">
+              <%= for {label, f} <- [{"Tudo", "all"}, {"Ativas", "active"}, {"Concluídas", "completed"}] do %>
+                <button
+                  phx-click="set_filter"
+                  phx-value-filter={f}
+                  class={[
+                    "text-sm font-black uppercase tracking-widest transition-all",
+                    @filter == f && "text-[#FF5F1F] scale-110",
+                    @filter != f && "hover:text-[#FF5F1F] opacity-50"
+                  ]}
+                >
+                  {label}
+                </button>
+              <% end %>
+            </div>
+
+            <div class="flex gap-2">
               <button
-                phx-click="set_filter"
-                phx-value-filter={f}
-                class={[
-                  "text-sm font-black uppercase tracking-widest transition-all",
-                  @filter == f && "text-[#FF5F1F] scale-110",
-                  @filter != f && "hover:text-[#FF5F1F] opacity-50"
-                ]}
+                phx-click="clear_completed"
+                class="bg-red-100 hover:bg-red-500 hover:text-white border-2 border-black px-4 py-1 text-[10px] font-black uppercase transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
               >
-                {label}
+                Limpar Concluídas
               </button>
-            <% end %>
+            </div>
+          </div>
+
+          <div :if={@show_new_category_form} class="border-[4px] border-black bg-white shadow-[8px_8px_0px_0px_rgba(45,49,66,1)]">
+            <form phx-submit="add_category" class="flex flex-col md:flex-row items-stretch">
+              <input
+                type="text"
+                name="category_name"
+                placeholder="QUAL O NOME DA NOVA CATEGORIA?"
+                class="flex-grow !border-0 !ring-0 !py-4 !px-6 !text-lg !font-bold !bg-transparent placeholder:text-gray-400 uppercase italic"
+              />
+              <button
+                type="submit"
+                class="bg-[#2D3142] text-white px-10 py-4 text-lg font-black hover:bg-[#FF5F1F] transition-colors border-t-[4px] md:border-t-0 md:border-l-[4px] border-black uppercase flex items-center justify-center gap-2"
+              >
+                <span>Adicionar</span>
+                <.icon name="hero-plus-solid" class="w-5 h-5 text-[#CFF27E]" />
+              </button>
+            </form>
           </div>
 
           <button
-            phx-click="clear_completed"
-            class="bg-red-100 hover:bg-red-500 hover:text-white border-2 border-black px-4 py-1 text-[10px] font-black uppercase transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            :if={!@show_new_category_form}
+            phx-click="toggle_new_category_form"
+            class="self-start bg-[#CFF27E] hover:bg-[#FF5F1F] hover:text-white border-2 border-black px-4 py-2 text-sm font-black uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
           >
-            Limpar Concluídas
+            + Nova Categoria
           </button>
         </div>
 
